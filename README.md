@@ -44,6 +44,28 @@ client = RubySnowflake::Client.new(
 # alternatively you can use the `from_env` method, which will pull these values from the following environment variables. You can either provide the path to the PEM file, or it's contents in an ENV variable.
 RubySnowflake::Client.from_env
 ```
+
+## OAuth2 Authentication (Alternative)
+
+If you already have OAuth2 tokens from your existing authentication system, you can use them directly:
+
+```ruby
+# Using OAuth2 tokens
+client = RubySnowflake::Client.from_oauth2_token(
+  "https://your-instance.snowflakecomputing.com",
+  "your_oauth2_access_token",
+  "some_warehouse",                           # The name of your warehouse to use by default
+  "some_database",                            # The name of the database in the context of which the queries will run
+  refresh_token: "your_refresh_token",        # optional
+  expires_at: Time.now + 3600,                # optional
+  client_id: "your_oauth2_client_id",         # for refresh
+  client_secret: "your_oauth2_client_secret"  # for refresh
+)
+
+# Use exactly the same as key pair authentication
+result = client.query("SELECT * FROM my_table")
+```
+
 Available ENV variables (see below in the config section for details)
 - `SNOWFLAKE_URI`
 - `SNOWFLAKE_PRIVATE_KEY_PATH` or `SNOWFLAKE_PRIVATE_KEY`
@@ -177,7 +199,7 @@ end
 # Gotchas
 
 1. Does not yet support multiple statements (work around is to wrap in `BEGIN ... END`)
-2. Only supports key pair authentication
+2. Supports both key pair authentication and OAuth2 authentication
 3. It's faster to work directly with the row value and not call to_h if you don't need to
 4. Rows are Enumerable, providing access to methods like `each`, `map`, `select`, `keys`, and `values`
 5. Row column access is case-insensitive and supports string keys, symbol keys, and numeric indices

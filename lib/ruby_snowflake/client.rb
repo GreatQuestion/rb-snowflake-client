@@ -187,7 +187,7 @@ module RubySnowflake
         access_token,
         refresh_token: refresh_token,
         expires_at: expires_at,
-        token_url: token_url,
+        uri: uri,
         client_id: client_id,
         client_secret: client_secret,
         token_refresh_threshold: token_refresh_threshold

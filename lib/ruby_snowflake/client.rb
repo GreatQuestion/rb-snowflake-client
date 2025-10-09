@@ -14,6 +14,7 @@ require "uri"
 
 require_relative "client/http_connection_wrapper"
 require_relative "client/key_pair_jwt_auth_manager"
+require_relative "client/oauth2_auth_manager"
 require_relative "client/single_thread_in_memory_strategy"
 require_relative "client/streaming_result_strategy"
 require_relative "client/threaded_in_memory_strategy"
@@ -143,6 +144,72 @@ module RubySnowflake
       @_enable_polling_queries = false
     end
 
+    # Factory method for OAuth2 authentication using existing tokens
+    # @param uri [String] Snowflake instance URI
+    # @param access_token [String] OAuth2 access token
+    # @param default_warehouse [String] Default warehouse name
+    # @param default_database [String] Default database name
+    # @param refresh_token [String, nil] OAuth2 refresh token (optional)
+    # @param expires_at [Time, nil] Token expiration time (optional)
+    # @param token_url [String, nil] OAuth2 token endpoint URL for refresh (optional)
+    # @param client_id [String, nil] OAuth2 client ID for refresh (optional)
+    # @param client_secret [String, nil] OAuth2 client secret for refresh (optional)
+    # @param default_role [String, nil] Default role name
+    # @param token_refresh_threshold [Integer] Seconds before expiry to refresh token
+    # @param logger [Logger] Logger instance
+    # @param log_level [Integer] Log level
+    # @param connection_timeout [Integer] Connection timeout in seconds
+    # @param max_connections [Integer] Maximum number of connections
+    # @param max_threads_per_query [Integer] Maximum threads per query
+    # @param thread_scale_factor [Float] Thread scale factor
+    # @param http_retries [Integer] Number of HTTP retries
+    # @param query_timeout [Integer] Query timeout in seconds
+    # @return [Client] Configured client instance
+    def self.from_oauth2_token(
+      uri, access_token, default_warehouse, default_database,
+      refresh_token: nil,
+      expires_at: nil,
+      token_url: nil,
+      client_id: nil,
+      client_secret: nil,
+      default_role: nil,
+      token_refresh_threshold: 60,
+      logger: DEFAULT_LOGGER,
+      log_level: DEFAULT_LOG_LEVEL,
+      connection_timeout: DEFAULT_CONNECTION_TIMEOUT,
+      max_connections: DEFAULT_MAX_CONNECTIONS,
+      max_threads_per_query: DEFAULT_MAX_THREADS_PER_QUERY,
+      thread_scale_factor: DEFAULT_THREAD_SCALE_FACTOR,
+      http_retries: DEFAULT_HTTP_RETRIES,
+      query_timeout: DEFAULT_QUERY_TIMEOUT
+    )
+      auth_manager = OAuth2AuthManager.new(
+        access_token,
+        refresh_token: refresh_token,
+        expires_at: expires_at,
+        token_url: token_url,
+        client_id: client_id,
+        client_secret: client_secret,
+        token_refresh_threshold: token_refresh_threshold
+      )
+
+      new(
+        uri, nil, nil, nil, nil, default_warehouse, default_database,
+        default_role: default_role,
+        logger: logger,
+        log_level: log_level,
+        connection_timeout: connection_timeout,
+        max_connections: max_connections,
+        max_threads_per_query: max_threads_per_query,
+        thread_scale_factor: thread_scale_factor,
+        http_retries: http_retries,
+        query_timeout: query_timeout
+      ).tap do |client|
+        # Replace the JWT auth manager with OAuth2 auth manager
+        client.instance_variable_set(:@key_pair_jwt_auth_manager, auth_manager)
+      end
+    end
+
     def query(query, warehouse: nil, streaming: false, database: nil, schema: nil, bindings: nil, role: nil)
       warehouse ||= @default_warehouse
       database ||= @default_database
@@ -205,8 +272,18 @@ module RubySnowflake
         request = request_class.new(uri)
         request["Content-Type"] = "application/json"
         request["Accept"] = "application/json"
-        request["Authorization"] = "Bearer #{@key_pair_jwt_auth_manager.jwt_token}"
-        request["X-Snowflake-Authorization-Token-Type"] = "KEYPAIR_JWT"
+
+        # Handle both JWT and OAuth2 authentication
+        if @key_pair_jwt_auth_manager.respond_to?(:jwt_token)
+          # JWT authentication
+          request['Authorization'] = "Bearer #{@key_pair_jwt_auth_manager.jwt_token}"
+          request['X-Snowflake-Authorization-Token-Type'] = 'KEYPAIR_JWT'
+        else
+          # OAuth2 authentication
+          request['Authorization'] = "Bearer #{@key_pair_jwt_auth_manager.token}"
+          request['X-Snowflake-Authorization-Token-Type'] = @key_pair_jwt_auth_manager.token_type
+        end
+
         request.body = body unless body.nil?
 
         Retryable.retryable(tries: @http_retries + 1,

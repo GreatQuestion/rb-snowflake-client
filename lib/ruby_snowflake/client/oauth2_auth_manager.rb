@@ -127,7 +127,7 @@ module RubySnowflake
       end
 
       def token_url
-        "#{@uri}/oauth/token-request"
+        "https://#{URI.parse(@uri).host}/oauth/token-request"
       end
     end
   end

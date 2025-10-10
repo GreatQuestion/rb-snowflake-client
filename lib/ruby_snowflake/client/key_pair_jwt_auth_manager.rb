@@ -40,6 +40,10 @@ module RubySnowflake
         end
       end
 
+      def token_type
+        'KEYPAIR_JWT'
+      end
+
       private
         def jwt_token_expired?
           Time.now.to_i > @token_expires_at

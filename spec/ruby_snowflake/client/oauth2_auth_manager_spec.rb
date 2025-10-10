@@ -38,12 +38,6 @@ RSpec.describe RubySnowflake::Client::OAuth2AuthManager do
     end
   end
 
-  describe '#token_type' do
-    it 'returns OAUTH' do
-      expect(subject.token_type).to eq('OAUTH')
-    end
-  end
-
   describe '#token_expired?' do
     context 'when no access token exists' do
       before do

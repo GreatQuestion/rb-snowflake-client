@@ -105,66 +105,10 @@ module RubySnowflake
         max_threads_per_query: max_threads_per_query,
         thread_scale_factor: thread_scale_factor,
         http_retries: http_retries,
-        query_timeout: query_timeout,
+        query_timeout: query_timeout
       )
     end
 
-    def initialize(
-      uri, private_key, organization, account, user, default_warehouse, default_database,
-      default_role: nil,
-      logger: DEFAULT_LOGGER,
-      log_level: DEFAULT_LOG_LEVEL,
-      jwt_token_ttl: DEFAULT_JWT_TOKEN_TTL,
-      connection_timeout: DEFAULT_CONNECTION_TIMEOUT,
-      max_connections: DEFAULT_MAX_CONNECTIONS,
-      max_threads_per_query: DEFAULT_MAX_THREADS_PER_QUERY,
-      thread_scale_factor: DEFAULT_THREAD_SCALE_FACTOR,
-      http_retries: DEFAULT_HTTP_RETRIES,
-      query_timeout: DEFAULT_QUERY_TIMEOUT
-    )
-      @base_uri = uri
-      @key_pair_jwt_auth_manager =
-        KeyPairJwtAuthManager.new(organization, account, user, private_key, jwt_token_ttl)
-      @default_warehouse = default_warehouse
-      @default_database = default_database
-      @default_role = default_role
-
-      # set defaults for config settings
-      @logger = logger
-      @logger.level = log_level
-      @connection_timeout = connection_timeout
-      @max_connections = max_connections
-      @max_threads_per_query = max_threads_per_query
-      @thread_scale_factor = thread_scale_factor
-      @http_retries = http_retries
-      @query_timeout = query_timeout
-
-      # Do NOT use normally, this exists for tests so we can reliably trigger the polling
-      # response workflow from snowflake in tests
-      @_enable_polling_queries = false
-    end
-
-    # Factory method for OAuth2 authentication using existing tokens
-    # @param uri [String] Snowflake instance URI
-    # @param access_token [String] OAuth2 access token
-    # @param default_warehouse [String] Default warehouse name
-    # @param default_database [String] Default database name
-    # @param refresh_token [String, nil] OAuth2 refresh token (optional)
-    # @param expires_at [Time, nil] Token expiration time (optional)
-    # @param token_url [String, nil] OAuth2 token endpoint URL for refresh (optional)
-    # @param client_id [String, nil] OAuth2 client ID for refresh (optional)
-    # @param client_secret [String, nil] OAuth2 client secret for refresh (optional)
-    # @param default_role [String, nil] Default role name
-    # @param token_refresh_threshold [Integer] Seconds before expiry to refresh token
-    # @param logger [Logger] Logger instance
-    # @param log_level [Integer] Log level
-    # @param connection_timeout [Integer] Connection timeout in seconds
-    # @param max_connections [Integer] Maximum number of connections
-    # @param max_threads_per_query [Integer] Maximum threads per query
-    # @param thread_scale_factor [Float] Thread scale factor
-    # @param http_retries [Integer] Number of HTTP retries
-    # @param query_timeout [Integer] Query timeout in seconds
-    # @return [Client] Configured client instance
     def self.from_oauth2_token(
       uri, access_token, default_warehouse, default_database,
       refresh_token: nil,
@@ -208,6 +152,41 @@ module RubySnowflake
         # Replace the JWT auth manager with OAuth2 auth manager
         client.instance_variable_set(:@key_pair_jwt_auth_manager, auth_manager)
       end
+    end
+
+    def initialize(
+      uri, private_key, organization, account, user, default_warehouse, default_database,
+      default_role: nil,
+      logger: DEFAULT_LOGGER,
+      log_level: DEFAULT_LOG_LEVEL,
+      jwt_token_ttl: DEFAULT_JWT_TOKEN_TTL,
+      connection_timeout: DEFAULT_CONNECTION_TIMEOUT,
+      max_connections: DEFAULT_MAX_CONNECTIONS,
+      max_threads_per_query: DEFAULT_MAX_THREADS_PER_QUERY,
+      thread_scale_factor: DEFAULT_THREAD_SCALE_FACTOR,
+      http_retries: DEFAULT_HTTP_RETRIES,
+      query_timeout: DEFAULT_QUERY_TIMEOUT
+    )
+      @base_uri = uri
+      @key_pair_jwt_auth_manager =
+        KeyPairJwtAuthManager.new(organization, account, user, private_key, jwt_token_ttl)
+      @default_warehouse = default_warehouse
+      @default_database = default_database
+      @default_role = default_role
+
+      # set defaults for config settings
+      @logger = logger
+      @logger.level = log_level
+      @connection_timeout = connection_timeout
+      @max_connections = max_connections
+      @max_threads_per_query = max_threads_per_query
+      @thread_scale_factor = thread_scale_factor
+      @http_retries = http_retries
+      @query_timeout = query_timeout
+
+      # Do NOT use normally, this exists for tests so we can reliably trigger the polling
+      # response workflow from snowflake in tests
+      @_enable_polling_queries = false
     end
 
     def query(query, warehouse: nil, streaming: false, database: nil, schema: nil, bindings: nil, role: nil)
@@ -273,16 +252,8 @@ module RubySnowflake
         request["Content-Type"] = "application/json"
         request["Accept"] = "application/json"
 
-        # Handle both JWT and OAuth2 authentication
-        if @key_pair_jwt_auth_manager.respond_to?(:jwt_token)
-          # JWT authentication
-          request['Authorization'] = "Bearer #{@key_pair_jwt_auth_manager.jwt_token}"
-          request['X-Snowflake-Authorization-Token-Type'] = 'KEYPAIR_JWT'
-        else
-          # OAuth2 authentication
-          request['Authorization'] = "Bearer #{@key_pair_jwt_auth_manager.token}"
-          request['X-Snowflake-Authorization-Token-Type'] = @key_pair_jwt_auth_manager.token_type
-        end
+        request['Authorization'] = "Bearer #{authorization_token}"
+        request['X-Snowflake-Authorization-Token-Type'] = @key_pair_jwt_auth_manager.token_type
 
         request.body = body unless body.nil?
 
@@ -296,6 +267,13 @@ module RubySnowflake
           raise_on_bad_response(response)
           response
         end
+      end
+
+      # Handle both JWT and OAuth2 authentication
+      def authorization_token
+        return @key_pair_jwt_auth_manager.token if @key_pair_jwt_auth_manager.token_type == 'OAUTH'
+
+        @key_pair_jwt_auth_manager.jwt_token
       end
 
       def raise_on_bad_response(response)

@@ -119,7 +119,6 @@ RSpec.describe RubySnowflake::Client do
         client.instance_variable_set(:@key_pair_jwt_auth_manager, mock_auth_manager)
 
         allow(mock_auth_manager).to receive(:token).and_return('test_oauth_token')
-        allow(mock_auth_manager).to receive(:token_type).and_return('OAUTH')
         allow(mock_auth_manager).to receive(:respond_to?).with(:jwt_token).and_return(false)
 
         allow(Net::HTTP::Post).to receive(:new).and_return(mock_request)
@@ -134,53 +133,11 @@ RSpec.describe RubySnowflake::Client do
       end
 
       it 'uses OAuth2 token in Authorization header' do
+        allow(mock_auth_manager).to receive(:token_type).and_return('OAUTH')
         expect(mock_request).to receive(:[]=).with('Authorization', 'Bearer test_oauth_token')
         expect(mock_request).to receive(:[]=).with('X-Snowflake-Authorization-Token-Type', 'OAUTH')
 
         client.send(:request_with_auth_and_headers, mock_connection, Net::HTTP::Post, '/api/v2/statements')
-      end
-    end
-
-    describe 'authentication method detection' do
-      let(:jwt_auth_manager) { double('jwt_auth_manager') }
-      let(:oauth_auth_manager) { double('oauth_auth_manager') }
-
-      before do
-        allow(jwt_auth_manager).to receive(:respond_to?).with(:jwt_token).and_return(true)
-        allow(jwt_auth_manager).to receive(:jwt_token).and_return('jwt_token')
-        allow(oauth_auth_manager).to receive(:respond_to?).with(:jwt_token).and_return(false)
-        allow(oauth_auth_manager).to receive(:token).and_return('oauth_token')
-        allow(oauth_auth_manager).to receive(:token_type).and_return('OAUTH')
-      end
-
-      it 'detects JWT authentication correctly' do
-        client.instance_variable_set(:@key_pair_jwt_auth_manager, jwt_auth_manager)
-
-        expect(jwt_auth_manager).to receive(:jwt_token).and_return('jwt_token')
-        expect(jwt_auth_manager).not_to receive(:token)
-
-        # This would be called in request_with_auth_and_headers
-        if jwt_auth_manager.respond_to?(:jwt_token)
-          jwt_auth_manager.jwt_token
-        else
-          oauth_auth_manager.token
-        end
-      end
-
-      it 'detects OAuth2 authentication correctly' do
-        client.instance_variable_set(:@key_pair_jwt_auth_manager, oauth_auth_manager)
-
-        expect(oauth_auth_manager).to receive(:token).and_return('oauth_token')
-        expect(oauth_auth_manager).to receive(:token_type).and_return('OAUTH')
-        expect(oauth_auth_manager).not_to receive(:jwt_token)
-
-        # Simulate the logic from request_with_auth_and_headers
-        if oauth_auth_manager.respond_to?(:jwt_token)
-          oauth_auth_manager.jwt_token
-        else
-          oauth_auth_manager.token
-          oauth_auth_manager.token_type
-        end
       end
     end
   end

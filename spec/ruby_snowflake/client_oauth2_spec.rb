@@ -22,7 +22,7 @@ RSpec.describe RubySnowflake::Client do
     end
 
     it 'creates a client with OAuth2AuthManager' do
-      auth_manager = subject.instance_variable_get(:@key_pair_jwt_auth_manager)
+      auth_manager = subject.instance_variable_get(:@auth_manager)
       expect(auth_manager).to be_a(RubySnowflake::Client::OAuth2AuthManager)
     end
 
@@ -33,7 +33,7 @@ RSpec.describe RubySnowflake::Client do
     end
 
     it 'configures OAuth2AuthManager with correct parameters' do
-      auth_manager = subject.instance_variable_get(:@key_pair_jwt_auth_manager)
+      auth_manager = subject.instance_variable_get(:@auth_manager)
       expect(auth_manager.instance_variable_get(:@access_token)).to eq(access_token)
       expect(auth_manager.instance_variable_get(:@refresh_token)).to eq(refresh_token)
       expect(auth_manager.instance_variable_get(:@expires_at)).to eq(expires_at)
@@ -86,7 +86,7 @@ RSpec.describe RubySnowflake::Client do
       end
 
       it 'configures OAuth2AuthManager with custom token_refresh_threshold' do
-        auth_manager = subject.instance_variable_get(:@key_pair_jwt_auth_manager)
+        auth_manager = subject.instance_variable_get(:@auth_manager)
         expect(auth_manager.instance_variable_get(:@token_refresh_threshold)).to eq(token_refresh_threshold)
       end
     end
@@ -116,7 +116,7 @@ RSpec.describe RubySnowflake::Client do
 
       before do
         allow(client).to receive(:connection_pool).and_return(double('pool', with: mock_connection))
-        client.instance_variable_set(:@key_pair_jwt_auth_manager, mock_auth_manager)
+        client.instance_variable_set(:@auth_manager, mock_auth_manager)
 
         allow(mock_auth_manager).to receive(:token).and_return('test_oauth_token')
         allow(mock_auth_manager).to receive(:respond_to?).with(:jwt_token).and_return(false)
@@ -161,7 +161,7 @@ RSpec.describe RubySnowflake::Client do
     end
 
     it 'automatically refreshes expired tokens' do
-      auth_manager = client.instance_variable_get(:@key_pair_jwt_auth_manager)
+      auth_manager = client.instance_variable_get(:@auth_manager)
 
       # Simulate token expiration
       allow(auth_manager).to receive(:token_expired?).and_return(true)
@@ -175,7 +175,7 @@ RSpec.describe RubySnowflake::Client do
     end
 
     it 'handles token refresh errors gracefully' do
-      auth_manager = client.instance_variable_get(:@key_pair_jwt_auth_manager)
+      auth_manager = client.instance_variable_get(:@auth_manager)
 
       allow(auth_manager).to receive(:token_expired?).and_return(true)
       allow(auth_manager).to receive(:refresh_access_token).and_raise(

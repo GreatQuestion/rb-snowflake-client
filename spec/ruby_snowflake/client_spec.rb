@@ -498,7 +498,7 @@ RSpec.describe RubySnowflake::Client do
       end
 
       it "sets the settings" do
-        expect(client.instance_variable_get(:@key_pair_jwt_auth_manager).
+        expect(client.instance_variable_get(:@auth_manager).
                  instance_variable_get(:@jwt_token_ttl)).to eq 3333
         expect(client.connection_timeout).to eq 33
         expect(client.max_connections).to eq 33
@@ -512,7 +512,7 @@ RSpec.describe RubySnowflake::Client do
 
     context "no extra env settings are set" do
       it "sets the settings to defaults" do
-        expect(client.instance_variable_get(:@key_pair_jwt_auth_manager).
+        expect(client.instance_variable_get(:@auth_manager).
                  instance_variable_get(:@jwt_token_ttl)
               ).to eq RubySnowflake::Client::DEFAULT_JWT_TOKEN_TTL
         expect(client.connection_timeout).to eq RubySnowflake::Client::DEFAULT_CONNECTION_TIMEOUT

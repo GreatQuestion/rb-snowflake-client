@@ -105,7 +105,7 @@ module RubySnowflake
         max_threads_per_query: max_threads_per_query,
         thread_scale_factor: thread_scale_factor,
         http_retries: http_retries,
-        query_timeout: query_timeout
+        query_timeout: query_timeout,
       )
     end
 
@@ -150,7 +150,7 @@ module RubySnowflake
         query_timeout: query_timeout
       ).tap do |client|
         # Replace the JWT auth manager with OAuth2 auth manager
-        client.instance_variable_set(:@key_pair_jwt_auth_manager, auth_manager)
+        client.instance_variable_set(:@auth_manager, auth_manager)
       end
     end
 
@@ -168,7 +168,7 @@ module RubySnowflake
       query_timeout: DEFAULT_QUERY_TIMEOUT
     )
       @base_uri = uri
-      @key_pair_jwt_auth_manager =
+      @auth_manager =
         KeyPairJwtAuthManager.new(organization, account, user, private_key, jwt_token_ttl)
       @default_warehouse = default_warehouse
       @default_database = default_database
@@ -226,7 +226,7 @@ module RubySnowflake
     # This method can be used to populate the JWT token used for authentication
     # in tests that require time travel.
     def create_jwt_token
-      @key_pair_jwt_auth_manager.jwt_token
+      @auth_manager.jwt_token
     end
 
     private_class_method :env_option
@@ -253,7 +253,7 @@ module RubySnowflake
         request["Accept"] = "application/json"
 
         request['Authorization'] = "Bearer #{authorization_token}"
-        request['X-Snowflake-Authorization-Token-Type'] = @key_pair_jwt_auth_manager.token_type
+        request['X-Snowflake-Authorization-Token-Type'] = @auth_manager.token_type
 
         request.body = body unless body.nil?
 
@@ -271,9 +271,9 @@ module RubySnowflake
 
       # Handle both JWT and OAuth2 authentication
       def authorization_token
-        return @key_pair_jwt_auth_manager.token if @key_pair_jwt_auth_manager.token_type == 'OAUTH'
+        return @auth_manager.token if @auth_manager.token_type == 'OAUTH'
 
-        @key_pair_jwt_auth_manager.jwt_token
+        @auth_manager.jwt_token
       end
 
       def raise_on_bad_response(response)

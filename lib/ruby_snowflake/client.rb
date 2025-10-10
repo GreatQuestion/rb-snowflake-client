@@ -14,6 +14,7 @@ require "uri"
 
 require_relative "client/http_connection_wrapper"
 require_relative "client/key_pair_jwt_auth_manager"
+require_relative "client/oauth2_auth_manager"
 require_relative "client/single_thread_in_memory_strategy"
 require_relative "client/streaming_result_strategy"
 require_relative "client/threaded_in_memory_strategy"
@@ -108,6 +109,51 @@ module RubySnowflake
       )
     end
 
+    def self.from_oauth2_token(
+      uri, access_token, default_warehouse, default_database,
+      refresh_token: nil,
+      expires_at: nil,
+      token_url: nil,
+      client_id: nil,
+      client_secret: nil,
+      default_role: nil,
+      token_refresh_threshold: 60,
+      logger: DEFAULT_LOGGER,
+      log_level: DEFAULT_LOG_LEVEL,
+      connection_timeout: DEFAULT_CONNECTION_TIMEOUT,
+      max_connections: DEFAULT_MAX_CONNECTIONS,
+      max_threads_per_query: DEFAULT_MAX_THREADS_PER_QUERY,
+      thread_scale_factor: DEFAULT_THREAD_SCALE_FACTOR,
+      http_retries: DEFAULT_HTTP_RETRIES,
+      query_timeout: DEFAULT_QUERY_TIMEOUT
+    )
+      auth_manager = OAuth2AuthManager.new(
+        access_token,
+        refresh_token: refresh_token,
+        expires_at: expires_at,
+        uri: uri,
+        client_id: client_id,
+        client_secret: client_secret,
+        token_refresh_threshold: token_refresh_threshold
+      )
+
+      new(
+        uri, nil, nil, nil, nil, default_warehouse, default_database,
+        default_role: default_role,
+        logger: logger,
+        log_level: log_level,
+        connection_timeout: connection_timeout,
+        max_connections: max_connections,
+        max_threads_per_query: max_threads_per_query,
+        thread_scale_factor: thread_scale_factor,
+        http_retries: http_retries,
+        query_timeout: query_timeout
+      ).tap do |client|
+        # Replace the JWT auth manager with OAuth2 auth manager
+        client.instance_variable_set(:@auth_manager, auth_manager)
+      end
+    end
+
     def initialize(
       uri, private_key, organization, account, user, default_warehouse, default_database,
       default_role: nil,
@@ -122,7 +168,7 @@ module RubySnowflake
       query_timeout: DEFAULT_QUERY_TIMEOUT
     )
       @base_uri = uri
-      @key_pair_jwt_auth_manager =
+      @auth_manager =
         KeyPairJwtAuthManager.new(organization, account, user, private_key, jwt_token_ttl)
       @default_warehouse = default_warehouse
       @default_database = default_database
@@ -180,7 +226,7 @@ module RubySnowflake
     # This method can be used to populate the JWT token used for authentication
     # in tests that require time travel.
     def create_jwt_token
-      @key_pair_jwt_auth_manager.jwt_token
+      @auth_manager.jwt_token
     end
 
     private_class_method :env_option
@@ -205,8 +251,10 @@ module RubySnowflake
         request = request_class.new(uri)
         request["Content-Type"] = "application/json"
         request["Accept"] = "application/json"
-        request["Authorization"] = "Bearer #{@key_pair_jwt_auth_manager.jwt_token}"
-        request["X-Snowflake-Authorization-Token-Type"] = "KEYPAIR_JWT"
+
+        request['Authorization'] = "Bearer #{authorization_token}"
+        request['X-Snowflake-Authorization-Token-Type'] = @auth_manager.token_type
+
         request.body = body unless body.nil?
 
         Retryable.retryable(tries: @http_retries + 1,
@@ -219,6 +267,13 @@ module RubySnowflake
           raise_on_bad_response(response)
           response
         end
+      end
+
+      # Handle both JWT and OAuth2 authentication
+      def authorization_token
+        return @auth_manager.token if @auth_manager.token_type == 'OAUTH'
+
+        @auth_manager.jwt_token
       end
 
       def raise_on_bad_response(response)

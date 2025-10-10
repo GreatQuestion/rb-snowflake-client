@@ -1,6 +1,9 @@
 # frozen_string_literal: true
 
 require 'concurrent'
+require 'net/http'
+require 'json'
+require 'uri'
 
 module RubySnowflake
   class Client
@@ -93,10 +96,6 @@ module RubySnowflake
       private
 
       def refresh_access_token
-        require 'net/http'
-        require 'json'
-        require 'uri'
-
         refresh_token_uri = URI(token_url)
         http = Net::HTTP.new(refresh_token_uri.host, refresh_token_uri.port)
         http.use_ssl = true if refresh_token_uri.scheme == 'https'

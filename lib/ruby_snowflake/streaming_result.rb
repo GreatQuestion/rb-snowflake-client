@@ -27,9 +27,19 @@ module RubySnowflake
         if data[index].is_a? Concurrent::Future
           data[index] = data[index].value # wait for it to finish
         end
+
         data[index].each do |row|
           yield wrap_row(row)
         end
+
+        # After iterating over the current partition, clear the data to release memory
+        data[index].clear
+
+        # Reassign to a symbol so:
+        # - When looking at the list of partitions in `data` it is easier to detect
+        # - Will raise an exception if `data.each` is attempted to be called again
+        # - It won't trigger prefetch detection as `next_index`
+        data[index] = :finished
       end
     end
 

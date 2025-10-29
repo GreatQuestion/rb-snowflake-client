@@ -23,14 +23,42 @@ RSpec.describe RubySnowflake::Client do
   end
 
   describe "querying" do
-    let(:query) { "" }
-    let(:result) { client.query(query) }
+    subject(:result) { client.query(query, query_name: "test_query") }
+    let(:query) { "SELECT 1;" }
 
-    context "with the alias name `fetch`" do
-      let(:query) { "SELECT 1;" }
+    it "emits instrumentation events" do
+      finish_event_received = false
+      finish_callback = lambda do |event|
+        expect(event.payload[:query_name]).to eq("test_query")
+        finish_event_received = true
+      end
+
+      ActiveSupport::Notifications.subscribed(finish_callback, "rb_snowflake_client.snowflake_query.finish") do
+        expect(result).to be_a(RubySnowflake::Result)
+      end
+
+      expect(finish_event_received).to be(true)
+    end
+
+    context "with the 'fetch' alias" do
+      subject(:result) { client.fetch(query) }
+
+      it "works with 'fetch' alias" do
+        expect(result).to be_a(RubySnowflake::Result)
+        expect(result.length).to eq(1)
+        rows = result.get_all_rows
+        expect(rows).to eq(
+          [{"1" => 1}]
+        )
+      end
+    end
+
+    context "without ActiveSupport" do
+      before do
+        stub_const("ActiveSupport", nil) if defined?(ActiveSupport)
+      end
+
       it "should work" do
-        result = client.fetch(query)
-
         expect(result).to be_a(RubySnowflake::Result)
         expect(result.length).to eq(1)
         rows = result.get_all_rows
@@ -41,33 +69,31 @@ RSpec.describe RubySnowflake::Client do
     end
 
     context "with lower case database name" do
+      subject(:result) { client.fetch(query, database: "ruby_snowflake_client_testing") }
       let(:query) { "SELECT * from public.test_datatypes;" }
 
-      it "should work" do
-        result = client.fetch(query, database: "ruby_snowflake_client_testing")
 
+      it "should work" do
         expect(result).to be_a(RubySnowflake::Result)
         expect(result.length).to eq(2)
       end
     end
 
     context "with lower case schema name" do
+      subject(:result) { client.fetch(query, database: "ruby_snowflake_client_testing", schema: "public") }
       let(:query) { "SELECT * from test_datatypes;" }
 
       it "should work" do
-        result = client.fetch(query, database: "ruby_snowflake_client_testing", schema: "public")
-
         expect(result).to be_a(RubySnowflake::Result)
         expect(result.length).to eq(2)
       end
     end
 
     context "with lower case warehouse name" do
+      subject(:result) { client.fetch(query, warehouse: "web_data_load_wh") }
       let(:query) { "SELECT * from ruby_snowflake_client_testing.public.test_datatypes;" }
 
       it "should work" do
-        result = client.fetch(query, warehouse: "web_data_load_wh")
-
         expect(result).to be_a(RubySnowflake::Result)
         expect(result.length).to eq(2)
       end
@@ -106,6 +132,31 @@ RSpec.describe RubySnowflake::Client do
         # We are not receiving this error because we cancel it before Snowflake can
         expect(client.logger).not_to have_received(:error).with(a_string_including("cancel query"))
         expect(Time.now.to_i - start_time).to be >= 1 #query timeout
+      end
+    end
+
+    context "with per-query timeout override" do
+      let(:query) { "SELECT 1" }
+
+      it "sends the timeout parameter in the request body" do
+        allow_any_instance_of(Net::HTTP).to receive(:request) do |instance, request|
+          request_body = JSON.parse(request.body)
+          expect(request_body["timeout"]).to eq(30)
+
+          response = Net::HTTPSuccess.new("1.1", "200", "OK")
+          allow(response).to receive(:body).and_return({
+            statementHandle: "test-handle",
+            resultSetMetaData: {
+              partitionInfo: [{}],
+              rowType: [{ name: "1", type: "FIXED" }]
+            },
+            data: [[1]]
+          }.to_json)
+          response
+        end
+
+        result = client.query(query, query_timeout: 30)
+        expect(result).to be_a(RubySnowflake::Result)
       end
     end
 

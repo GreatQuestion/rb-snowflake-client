@@ -12,6 +12,13 @@ require "retryable"
 require "securerandom"
 require "uri"
 
+begin
+  require "active_support"
+  require "active_support/notifications"
+rescue LoadError
+  # This isn't required
+end
+
 require_relative "client/http_connection_wrapper"
 require_relative "client/key_pair_jwt_auth_manager"
 require_relative "client/oauth2_auth_manager"
@@ -176,31 +183,35 @@ module RubySnowflake
       @_enable_polling_queries = false
     end
 
-    def query(query, warehouse: nil, streaming: false, database: nil, schema: nil, bindings: nil, role: nil)
+    def query(query, warehouse: nil, streaming: false, database: nil, schema: nil, bindings: nil, role: nil, query_name: nil, query_timeout: nil)
       warehouse ||= @default_warehouse
       database ||= @default_database
       role ||= @default_role
+      query_timeout ||= @query_timeout
 
-      query_start_time = Time.now.to_i
-      response = nil
-      connection_pool.with do |connection|
-        request_body = {
-          "warehouse" => warehouse&.upcase,
-          "schema" => schema&.upcase,
-          "database" =>  database&.upcase,
-          "statement" => query,
-          "bindings" => bindings,
-          "role" => role
-        }
+      with_instrumentation({ database:, schema:, warehouse:, query_name: }) do
+        query_start_time = Time.now.to_i
+        response = nil
+        connection_pool.with do |connection|
+          request_body = {
+            "warehouse" => warehouse&.upcase,
+            "schema" => schema&.upcase,
+            "database" =>  database&.upcase,
+            "statement" => query,
+            "bindings" => bindings,
+            "role" => role,
+            "timeout" => query_timeout
+          }
 
-        response = request_with_auth_and_headers(
-          connection,
-          Net::HTTP::Post,
-          "/api/v2/statements?requestId=#{SecureRandom.uuid}&async=#{@_enable_polling_queries}",
-          request_body.to_json
-        )
+          response = request_with_auth_and_headers(
+            connection,
+            Net::HTTP::Post,
+            "/api/v2/statements?requestId=#{SecureRandom.uuid}&async=#{@_enable_polling_queries}",
+            request_body.to_json
+          )
+        end
+        retrieve_result_set(query_start_time, query, response, streaming, query_timeout)
       end
-      retrieve_result_set(query_start_time, query, response, streaming)
     end
 
     alias fetch query
@@ -293,7 +304,7 @@ module RubySnowflake
         end
       end
 
-      def poll_for_completion_or_timeout(query_start_time, query, statement_handle)
+      def poll_for_completion_or_timeout(query_start_time, query, statement_handle, query_timeout)
         first_data_json_body = nil
 
         connection_pool.with do |connection|
@@ -301,7 +312,7 @@ module RubySnowflake
             sleep POLLING_INTERVAL
 
             elapsed_time = Time.now.to_i - query_start_time
-            if elapsed_time > @query_timeout
+            if elapsed_time > query_timeout
               cancelled = attempt_to_cancel_and_silence_errors(connection, statement_handle)
               raise QueryTimeoutError.new("Query timed out. Query cancelled? #{cancelled}; Duration: #{elapsed_time}; Query: '#{query}'")
             end
@@ -329,12 +340,12 @@ module RubySnowflake
         false
       end
 
-      def retrieve_result_set(query_start_time, query, response, streaming)
+      def retrieve_result_set(query_start_time, query, response, streaming, query_timeout)
         json_body = JSON.parse(response.body, JSON_PARSE_OPTIONS)
         statement_handle = json_body["statementHandle"]
 
         if response.code == POLLING_RESPONSE_CODE
-          result_response = poll_for_completion_or_timeout(query_start_time, query, statement_handle)
+          result_response = poll_for_completion_or_timeout(query_start_time, query, statement_handle, query_timeout)
           json_body = JSON.parse(result_response.body, JSON_PARSE_OPTIONS)
         end
 
@@ -370,6 +381,16 @@ module RubySnowflake
 
       def number_of_threads_to_use(partition_count)
         [[1, (partition_count / @thread_scale_factor.to_f).ceil].max, @max_threads_per_query].min
+      end
+
+      def with_instrumentation(tags, &block)
+        return block.call unless defined?(::ActiveSupport) && ::ActiveSupport
+
+        ::ActiveSupport::Notifications.instrument(
+            "rb_snowflake_client.snowflake_query.finish",
+            tags.merge(query_id: SecureRandom.uuid)) do
+          block.call
+        end
       end
   end
 end

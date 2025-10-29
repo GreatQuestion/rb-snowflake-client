@@ -8,6 +8,10 @@ gemspec
 gem "bundler"
 gem "rake"
 
+group :development, :test do
+  gem "activesupport"
+end
+
 group :development do
   gem "parallel"
   gem "pry"

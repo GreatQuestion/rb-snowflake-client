@@ -24,6 +24,11 @@ module RubySnowflake
           end
         end
 
+        # Fetch current partition if not already fetched
+        if data[index].nil?
+          data[index] = @retreive_proc.call(index)
+        end
+
         if data[index].is_a? Concurrent::Future
           data[index] = data[index].value # wait for it to finish
         end

@@ -28,6 +28,8 @@ module RubySnowflake
           data[index] = data[index].value # wait for it to finish
         end
 
+        next if data[index].nil?
+
         data[index].each do |row|
           yield wrap_row(row)
         end

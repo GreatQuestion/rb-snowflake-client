@@ -17,7 +17,7 @@ module RubySnowflake
       thread_pool = Concurrent::FixedThreadPool.new 1
 
       data.each_with_index do |_partition, index|
-        next_index = [index + 1, data.size - 1].min
+        next_index = [index+1, data.size-1].min
         if data[next_index].nil? # prefetch
           data[next_index] = Concurrent::Future.execute(executor: thread_pool) do
             @retreive_proc.call(next_index)

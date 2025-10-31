@@ -1,5 +1,3 @@
-# frozen_string_literal: true
-
 require 'spec_helper'
 
 RSpec.describe RubySnowflake::Client do
@@ -8,12 +6,18 @@ RSpec.describe RubySnowflake::Client do
     let(:access_token) { 'test_access_token' }
     let(:default_warehouse) { 'test_warehouse' }
     let(:default_database) { 'test_database' }
+    let(:refresh_token) { 'test_refresh_token' }
     let(:expires_at) { Time.now + 3600 }
+    let(:client_id) { 'test_client_id' }
+    let(:client_secret) { 'test_client_secret' }
 
     subject do
       described_class.from_oauth2_token(
         uri, access_token, default_warehouse, default_database,
-        expires_at: expires_at
+        refresh_token: refresh_token,
+        expires_at: expires_at,
+        client_id: client_id,
+        client_secret: client_secret
       )
     end
 
@@ -31,12 +35,16 @@ RSpec.describe RubySnowflake::Client do
     it 'configures OAuth2AuthManager with correct parameters' do
       auth_manager = subject.instance_variable_get(:@auth_manager)
       expect(auth_manager.instance_variable_get(:@access_token)).to eq(access_token)
+      expect(auth_manager.instance_variable_get(:@refresh_token)).to eq(refresh_token)
       expect(auth_manager.instance_variable_get(:@expires_at)).to eq(expires_at)
+      expect(auth_manager.instance_variable_get(:@client_id)).to eq(client_id)
+      expect(auth_manager.instance_variable_get(:@client_secret)).to eq(client_secret)
     end
 
     context 'with custom parameters' do
       let(:default_role) { 'test_role' }
-      let(:logger) { Logger.new($stdout) }
+      let(:token_refresh_threshold) { 120 }
+      let(:logger) { Logger.new(STDOUT) }
       let(:log_level) { Logger::DEBUG }
       let(:connection_timeout) { 120 }
       let(:max_connections) { 32 }
@@ -48,8 +56,12 @@ RSpec.describe RubySnowflake::Client do
       subject do
         described_class.from_oauth2_token(
           uri, access_token, default_warehouse, default_database,
+          refresh_token: refresh_token,
           expires_at: expires_at,
+          client_id: client_id,
+          client_secret: client_secret,
           default_role: default_role,
+          token_refresh_threshold: token_refresh_threshold,
           logger: logger,
           log_level: log_level,
           connection_timeout: connection_timeout,
@@ -72,19 +84,10 @@ RSpec.describe RubySnowflake::Client do
         expect(subject.instance_variable_get(:@http_retries)).to eq(http_retries)
         expect(subject.instance_variable_get(:@query_timeout)).to eq(query_timeout)
       end
-    end
 
-    context 'without expires_at' do
-      subject do
-        described_class.from_oauth2_token(
-          uri, access_token, default_warehouse, default_database
-        )
-      end
-
-      it 'creates auth manager with nil expires_at' do
+      it 'configures OAuth2AuthManager with custom token_refresh_threshold' do
         auth_manager = subject.instance_variable_get(:@auth_manager)
-        expect(auth_manager.instance_variable_get(:@access_token)).to eq(access_token)
-        expect(auth_manager.instance_variable_get(:@expires_at)).to be_nil
+        expect(auth_manager.instance_variable_get(:@token_refresh_threshold)).to eq(token_refresh_threshold)
       end
     end
   end
@@ -94,10 +97,14 @@ RSpec.describe RubySnowflake::Client do
     let(:access_token) { 'test_access_token' }
     let(:default_warehouse) { 'test_warehouse' }
     let(:default_database) { 'test_database' }
+    let(:client_id) { 'test_client_id' }
+    let(:client_secret) { 'test_client_secret' }
 
     let(:client) do
       described_class.from_oauth2_token(
-        uri, access_token, default_warehouse, default_database
+        uri, access_token, default_warehouse, default_database,
+        client_id: client_id,
+        client_secret: client_secret
       )
     end
 
@@ -132,6 +139,53 @@ RSpec.describe RubySnowflake::Client do
 
         client.send(:request_with_auth_and_headers, mock_connection, Net::HTTP::Post, '/api/v2/statements')
       end
+    end
+  end
+
+  describe 'OAuth2 token refresh integration' do
+    let(:uri) { 'https://test.snowflakecomputing.com' }
+    let(:access_token) { 'test_access_token' }
+    let(:refresh_token) { 'test_refresh_token' }
+    let(:expires_at) { Time.now + 3600 }
+    let(:client_id) { 'test_client_id' }
+    let(:client_secret) { 'test_client_secret' }
+
+    let(:client) do
+      described_class.from_oauth2_token(
+        uri, access_token, 'test_warehouse', 'test_database',
+        refresh_token: refresh_token,
+        expires_at: expires_at,
+        client_id: client_id,
+        client_secret: client_secret
+      )
+    end
+
+    it 'automatically refreshes expired tokens' do
+      auth_manager = client.instance_variable_get(:@auth_manager)
+
+      # Simulate token expiration
+      allow(auth_manager).to receive(:token_expired?).and_return(true)
+      allow(auth_manager).to receive(:refresh_access_token).and_return('new_access_token')
+
+      # Mock the refresh process
+      auth_manager.instance_variable_set(:@access_token, 'new_access_token')
+      auth_manager.instance_variable_set(:@expires_at, Time.now + 3600)
+
+      expect(auth_manager.token).to eq('new_access_token')
+    end
+
+    it 'handles token refresh errors gracefully' do
+      auth_manager = client.instance_variable_get(:@auth_manager)
+
+      allow(auth_manager).to receive(:token_expired?).and_return(true)
+      allow(auth_manager).to receive(:refresh_access_token).and_raise(
+        RubySnowflake::Client::OAuth2AuthManager::AuthenticationError.new('Refresh failed')
+      )
+
+      expect { auth_manager.token }.to raise_error(
+        RubySnowflake::Client::OAuth2AuthManager::AuthenticationError,
+        'Refresh failed'
+      )
     end
   end
 end

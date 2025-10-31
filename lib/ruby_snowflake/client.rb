@@ -118,8 +118,13 @@ module RubySnowflake
 
     def self.from_oauth2_token(
       uri, access_token, default_warehouse, default_database,
+      refresh_token: nil,
       expires_at: nil,
+      token_url: nil,
+      client_id: nil,
+      client_secret: nil,
       default_role: nil,
+      token_refresh_threshold: 60,
       logger: DEFAULT_LOGGER,
       log_level: DEFAULT_LOG_LEVEL,
       connection_timeout: DEFAULT_CONNECTION_TIMEOUT,
@@ -129,7 +134,15 @@ module RubySnowflake
       http_retries: DEFAULT_HTTP_RETRIES,
       query_timeout: DEFAULT_QUERY_TIMEOUT
     )
-      auth_manager = OAuth2AuthManager.new(access_token, expires_at: expires_at)
+      auth_manager = OAuth2AuthManager.new(
+        access_token,
+        refresh_token: refresh_token,
+        expires_at: expires_at,
+        uri: uri,
+        client_id: client_id,
+        client_secret: client_secret,
+        token_refresh_threshold: token_refresh_threshold
+      )
 
       new(
         uri, nil, nil, nil, nil, default_warehouse, default_database,
